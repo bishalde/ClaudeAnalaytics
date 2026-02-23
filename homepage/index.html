@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Analytics - See where your Claude Code tokens go</title>
+<meta name="description" content="Visualize your Claude Code token usage. One command, zero setup. 100% local.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">
+      <div class="nav-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      Claude Analytics
+    </a>
+    <div class="nav-links">
+      <a href="#how" class="hide-mobile">How It Works</a>
+      <a href="#features" class="hide-mobile">Features</a>
+      <a href="https://github.com/bishalde/ClaudeAnalaytics" target="_blank" class="nav-cta">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-orb hero-orb1"></div>
+  <div class="hero-orb hero-orb2"></div>
+  <div class="hero-orb hero-orb3"></div>
+
+  <div class="hero-badge">
+    <span class="hero-dot"></span>
+    Open Source &middot; Free Forever
+  </div>
+
+  <h1>
+    <span class="line">You hit your</span>
+    <span class="line">Claude Code
+      <span class="rotating">
+        <span class="rotating-word">limit.</span>
+        <span class="rotating-word">quota.</span>
+        <span class="rotating-word">cap.</span>
+      </span>
+    </span>
+    <span class="line" style="font-size:.55em;color:var(--text2);font-weight:600;margin-top:8px;letter-spacing:0">Now see why.</span>
+  </h1>
+
+  <p class="hero-sub">
+    Visualize exactly where your Claude Code tokens go. Discover which conversations cost the most,
+    get actionable insights, and understand your usage patterns. One command, zero setup.
+  </p>
+
+  <div class="hero-actions">
+    <a href="https://github.com/bishalde/ClaudeAnalaytics" target="_blank" class="btn-primary">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+      View on GitHub
+    </a>
+    <a href="#how" class="btn-secondary">Learn more</a>
+  </div>
+
+  <div class="cmd-box">
+    <span class="cmd-text"><span class="cmd-prefix">$ </span>npx claude-spend</span>
+    <button class="cmd-copy" onclick="copyCmd(this)">Copy</button>
+  </div>
+
+  <div class="scroll-cue">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+  </div>
+</section>
+
+<!-- Dashboard Preview -->
+<div class="preview-section reveal">
+  <div class="preview-card">
+    <div class="preview-bar">
+      <div class="preview-dot r"></div>
+      <div class="preview-dot y"></div>
+      <div class="preview-dot g"></div>
+      <div class="preview-url">localhost:3456</div>
+    </div>
+    <div class="preview-body">
+      <div class="mock-stats">
+        <div class="mock-stat">
+          <div class="bar" style="background:var(--grad1)"></div>
+          <div class="label">Total Usage</div>
+          <div class="val">47.2M</div>
+          <div class="sub">42.1M read + 5.1M written</div>
+        </div>
+        <div class="mock-stat">
+          <div class="bar" style="background:var(--grad2)"></div>
+          <div class="label">Conversations</div>
+          <div class="val">342</div>
+          <div class="sub">~138K tokens avg</div>
+        </div>
+        <div class="mock-stat">
+          <div class="bar" style="background:var(--grad3)"></div>
+          <div class="label">Messages</div>
+          <div class="val">8,491</div>
+          <div class="sub">~5.6K tokens avg</div>
+        </div>
+        <div class="mock-stat">
+          <div class="bar" style="background:linear-gradient(135deg,#ec4899,#f43f5e)"></div>
+          <div class="label">Claude Wrote</div>
+          <div class="val">5.1M</div>
+          <div class="sub">10.8% of total</div>
+        </div>
+      </div>
+      <div class="mock-chart">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:12px">Tokens per Day</div>
+        <div class="mock-bars">
+          <div class="mock-bar" style="--h:45%"></div>
+          <div class="mock-bar" style="--h:62%"></div>
+          <div class="mock-bar" style="--h:38%"></div>
+          <div class="mock-bar" style="--h:80%"></div>
+          <div class="mock-bar" style="--h:55%"></div>
+          <div class="mock-bar" style="--h:92%"></div>
+          <div class="mock-bar" style="--h:70%"></div>
+          <div class="mock-bar" style="--h:48%"></div>
+          <div class="mock-bar" style="--h:85%"></div>
+          <div class="mock-bar" style="--h:60%"></div>
+          <div class="mock-bar" style="--h:75%"></div>
+          <div class="mock-bar" style="--h:42%"></div>
+          <div class="mock-bar" style="--h:95%"></div>
+          <div class="mock-bar" style="--h:58%"></div>
+          <div class="mock-bar" style="--h:72%"></div>
+          <div class="mock-bar" style="--h:35%"></div>
+          <div class="mock-bar" style="--h:68%"></div>
+          <div class="mock-bar" style="--h:52%"></div>
+          <div class="mock-bar" style="--h:88%"></div>
+          <div class="mock-bar" style="--h:45%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="preview-glow"></div>
+  </div>
+</div>
+
+<!-- How It Works -->
+<section class="section" id="how">
+  <div class="section-label reveal">How It Works</div>
+  <h2 class="reveal">Three steps. Thirty seconds.</h2>
+  <p class="subtitle reveal">Your Claude Code data is already on your machine. We just help you see it.</p>
+
+  <div class="steps">
+    <div class="step reveal reveal-d1">
+      <div class="step-num" style="background:rgba(99,102,241,.15);color:var(--indigo)">1</div>
+      <h3>Open your terminal</h3>
+      <p>Works on macOS, Linux, and WSL. Just open any terminal where you use Claude Code.</p>
+    </div>
+    <div class="step reveal reveal-d2">
+      <div class="step-num" style="background:rgba(139,92,246,.15);color:var(--violet)">2</div>
+      <h3>Run the command</h3>
+      <p>Paste <code>npx claude-spend</code> and press Enter. No install, no config, no API keys needed.</p>
+    </div>
+    <div class="step reveal reveal-d3">
+      <div class="step-num" style="background:rgba(16,185,129,.15);color:var(--emerald)">3</div>
+      <h3>See your dashboard</h3>
+      <p>Your browser opens automatically with a full breakdown of your token usage, insights, and patterns.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section" id="features">
+  <div class="section-label reveal">Features</div>
+  <h2 class="reveal">Everything you need to understand your usage.</h2>
+  <p class="subtitle reveal">Built by Claude Code power users who kept hitting the limit.</p>
+
+  <div class="features">
+    <div class="feature reveal reveal-d1">
+      <div class="feature-icon" style="background:rgba(99,102,241,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+      </div>
+      <h3>Usage Breakdown</h3>
+      <p>See every conversation ranked by token consumption. Discover which sessions are eating your quota with detailed per-message breakdowns.</p>
+    </div>
+    <div class="feature reveal reveal-d2">
+      <div class="feature-icon" style="background:rgba(245,158,11,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><path d="M12 2a7 7 0 0 1 4 12.75V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.25A7 7 0 0 1 12 2z"/><path d="M9 21h6"/></svg>
+      </div>
+      <h3>Smart Insights</h3>
+      <p>Get actionable tips personalized to your usage. Find out if vague prompts, long sessions, or model choices are costing you extra tokens.</p>
+    </div>
+    <div class="feature reveal reveal-d3">
+      <div class="feature-icon" style="background:rgba(34,211,238,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+      </div>
+      <h3>Daily Patterns</h3>
+      <p>Visualize your usage over time with daily charts. Spot trends, identify heavy days, and understand how your habits affect token consumption.</p>
+    </div>
+    <div class="feature reveal reveal-d1">
+      <div class="feature-icon" style="background:rgba(139,92,246,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 3v18"/><path d="M3 7l9 4 9-4"/></svg>
+      </div>
+      <h3>Project Analytics</h3>
+      <p>Break down usage by project. See which codebases consume the most tokens and drill into the most expensive prompts per project.</p>
+    </div>
+    <div class="feature reveal reveal-d2">
+      <div class="feature-icon" style="background:rgba(236,72,153,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      </div>
+      <h3>Model Comparison</h3>
+      <p>See token usage split by model - Opus, Sonnet, Haiku. Understand if you're using the right model for the right task.</p>
+    </div>
+    <div class="feature reveal reveal-d3">
+      <div class="feature-icon" style="background:rgba(16,185,129,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h3>100% Private</h3>
+      <p>Everything runs locally. Your data never leaves your machine. No accounts, no tracking, no cloud. Just you and your terminal.</p>
+    </div>
+  </div>
+
+  <div class="trust-grid reveal">
+    <div class="trust-item">
+      <div class="trust-check">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      100% Local
+    </div>
+    <div class="trust-item">
+      <div class="trust-check">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      Zero Config
+    </div>
+    <div class="trust-item">
+      <div class="trust-check">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      No Data Sent
+    </div>
+    <div class="trust-item">
+      <div class="trust-check">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      Open Source
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="cta-inner reveal">
+    <h2>Try it now.</h2>
+    <p>Your Claude Code usage data is already on your machine. One command unlocks insights you've never seen.</p>
+    <div class="cmd-box" style="justify-content:center;margin-bottom:32px">
+      <span class="cmd-text"><span class="cmd-prefix">$ </span>npx claude-spend</span>
+      <button class="cmd-copy" onclick="copyCmd(this)">Copy</button>
+    </div>
+    <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap">
+      <a href="https://github.com/bishalde/ClaudeAnalaytics" target="_blank" style="color:var(--text2);text-decoration:none;font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;transition:color .2s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text2)'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+      <a href="https://www.npmjs.com/package/claude-spend" target="_blank" style="color:var(--text2);text-decoration:none;font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;transition:color .2s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text2)'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M0 7.334v8h6.666v1.332H12v-1.332h12v-8H0zm6.666 6.664H5.334v-4H3.999v4H1.335V8.667h5.331v5.331zm4 0h-2.668V8.667h2.668v5.331zm12.001 0h-5.331V8.667h2.664v4h1.336v-4h1.331v4h1.336v-4h1.331v5.331z"/></svg>
+        npm
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-left">Built with Claude Code</div>
+    <div class="footer-links">
+      <a href="https://github.com/bishalde/ClaudeAnalaytics" target="_blank">GitHub</a>
+      <a href="https://www.npmjs.com/package/claude-spend" target="_blank">npm</a>
+    </div>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Spend</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<div id="loading" class="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">Reading your Claude Code sessions...</div>
+</div>
+
+<div id="app" class="container" style="display:none">
+  <div class="privacy anim">&#128274; All data stays on your machine. Nothing is sent anywhere.</div>
+
+  <div class="header anim">
+    <div class="header-left">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <h1>Claude Spend</h1>
+    </div>
+    <div class="header-right">
+      <span id="dateRange" class="date-range"></span>
+      <button class="refresh-btn" onclick="refreshData()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <div class="hero anim d1">
+    <h2 class="hero-title">Your token usage, visualized.</h2>
+    <p class="hero-sub">See exactly where your Claude Code tokens go. Zero setup, total privacy.</p>
+  </div>
+
+  <div class="stats-row" id="statsRow"></div>
+
+  <div id="insightsSection" class="insights-section" style="display:none">
+    <div class="section-header anim">
+      <div class="section-icon" style="background:rgba(245,158,11,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"><path d="M12 2a7 7 0 0 1 4 12.75V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.25A7 7 0 0 1 12 2z"/><path d="M9 21h6"/></svg>
+      </div>
+      <div class="section-title">Insights</div>
+    </div>
+    <div id="insightsList"></div>
+  </div>
+
+  <div class="charts-grid anim d3">
+    <div class="chart-card">
+      <h3>Tokens per Day</h3>
+      <canvas id="dailyChart"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--indigo)"></div> Read by Claude</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Written by Claude</div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>By Model</h3>
+      <canvas id="modelChart"></canvas>
+      <div id="modelLegend" class="legend" style="flex-direction:column;gap:12px;margin-top:20px"></div>
+    </div>
+  </div>
+
+  <div class="projects-section anim d4">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(139,92,246,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 3v18"/><path d="M3 7l9 4 9-4"/></svg>
+      </div>
+      <div class="section-title">Projects</div>
+      <span id="projectsCount" style="font-size:13px;color:var(--text3);font-weight:600;margin-left:auto"></span>
+    </div>
+    <div class="card">
+      <table class="tbl">
+        <thead><tr>
+          <th>Project</th>
+          <th style="text-align:right">Total Tokens</th>
+          <th style="text-align:right">Sessions</th>
+          <th style="text-align:right">Queries</th>
+        </tr></thead>
+        <tbody id="projectsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="top-prompts anim d4">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(99,102,241,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+      </div>
+      <div class="section-title">Most Expensive Prompts</div>
+    </div>
+    <div class="prompts-card" id="topPromptsList"></div>
+  </div>
+
+  <div id="drilldown" class="drilldown">
+    <div class="drilldown-header">
+      <div>
+        <div id="drilldownTitle" class="drilldown-title"></div>
+        <div id="drilldownMeta" class="drilldown-meta"></div>
+      </div>
+      <button class="drilldown-close" onclick="closeDrilldown()">&times;</button>
+    </div>
+    <div id="queryList" class="query-list"></div>
+  </div>
+
+  <div class="sessions-section anim d5">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(16,185,129,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+      </div>
+      <div class="section-title">All Sessions</div>
+    </div>
+    <div class="sessions-toolbar">
+      <input type="text" class="session-search" id="searchInput" placeholder="Search prompts, models, projects...">
+      <span id="sessionCount" class="session-count"></span>
+    </div>
+    <div class="card">
+      <table class="tbl">
+        <thead><tr>
+          <th data-sort="date">Date</th>
+          <th data-sort="prompt">What you asked</th>
+          <th data-sort="model">Model</th>
+          <th data-sort="queries" style="text-align:right">Messages</th>
+          <th data-sort="total" style="text-align:right" class="sorted">Total tokens</th>
+          <th data-sort="input" style="text-align:right">Read</th>
+          <th data-sort="output" style="text-align:right">Written</th>
+        </tr></thead>
+        <tbody id="sessionsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    Built with <a href="https://claude.ai/code" target="_blank">Claude Code</a>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

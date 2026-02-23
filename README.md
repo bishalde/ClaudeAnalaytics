@@ -7,7 +7,7 @@ Claude Analytics reads your local Claude Code session data and serves an interac
 ## Quick Start
 
 ```bash
-npx claude-spend
+npx claude-code-usage-analytics
 ```
 
 That's it. Your browser opens with a full analytics dashboard.
@@ -33,10 +33,10 @@ That's it. Your browser opens with a full analytics dashboard.
 ## Options
 
 ```bash
-npx claude-spend                    # Default: opens on port 3456
-npx claude-spend --port 8080        # Custom port
-npx claude-spend --no-open          # Don't auto-open browser
-npx claude-spend --help             # Show help
+npx claude-code-usage-analytics                    # Default: opens on port 3456
+npx claude-code-usage-analytics --port 8080        # Custom port
+npx claude-code-usage-analytics --no-open          # Don't auto-open browser
+npx claude-code-usage-analytics --help             # Show help
 ```
 
 ## Project Structure

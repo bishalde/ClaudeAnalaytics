@@ -5,7 +5,7 @@ window.addEventListener('scroll', () => {
 
 // Copy command
 function copyCmd(btn) {
-  navigator.clipboard.writeText('npx claude-spend').then(() => {
+  navigator.clipboard.writeText('npx claude-code-usage-analytics').then(() => {
     btn.textContent = 'Copied!';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
@@ -17,22 +17,21 @@ function copyCmd(btn) {
   const words = document.querySelectorAll('.rotating-word');
   if (!words.length) return;
   let current = 0;
-
-  // Size the container to the widest word
   const container = document.querySelector('.rotating');
+
+  // Measure widest word by cloning off-screen
   let maxW = 0;
   words.forEach(w => {
-    w.style.position = 'relative';
-    w.style.opacity = '0';
-    w.style.display = 'inline-block';
-    const rect = w.getBoundingClientRect();
-    if (rect.width > maxW) maxW = rect.width;
-    w.style.position = '';
-    w.style.display = '';
+    const clone = w.cloneNode(true);
+    clone.style.cssText = 'position:absolute;visibility:hidden;display:inline-block;white-space:nowrap;font:inherit;letter-spacing:inherit;';
+    container.parentElement.appendChild(clone);
+    const cw = clone.getBoundingClientRect().width;
+    if (cw > maxW) maxW = cw;
+    clone.remove();
   });
-  container.style.width = maxW + 'px';
+  container.style.width = Math.ceil(maxW + 4) + 'px';
 
-  // Show first word
+  // Show first word immediately
   words[current].classList.add('active');
 
   setInterval(() => {
@@ -40,7 +39,7 @@ function copyCmd(btn) {
     current = (current + 1) % words.length;
     words[prev].classList.remove('active');
     words[prev].classList.add('exit');
-    setTimeout(() => { words[prev].classList.remove('exit'); }, 500);
+    setTimeout(() => words[prev].classList.remove('exit'), 600);
     words[current].classList.add('active');
   }, 2500);
 })();

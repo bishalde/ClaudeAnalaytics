@@ -19,19 +19,22 @@ function copyCmd(btn) {
   let current = 0;
   const container = document.querySelector('.rotating');
 
-  // Measure widest word by cloning off-screen
-  let maxW = 0;
+  // Measure each word width by cloning off-screen
+  const widths = [];
   words.forEach(w => {
     const clone = w.cloneNode(true);
     clone.style.cssText = 'position:absolute;visibility:hidden;display:inline-block;white-space:nowrap;font:inherit;letter-spacing:inherit;';
     container.parentElement.appendChild(clone);
-    const cw = clone.getBoundingClientRect().width;
-    if (cw > maxW) maxW = cw;
+    widths.push(Math.ceil(clone.getBoundingClientRect().width));
     clone.remove();
   });
-  container.style.width = Math.ceil(maxW + 4) + 'px';
+
+  function setWidth(i) {
+    container.style.width = widths[i] + 'px';
+  }
 
   // Show first word immediately
+  setWidth(current);
   words[current].classList.add('active');
 
   setInterval(() => {
@@ -41,6 +44,7 @@ function copyCmd(btn) {
     words[prev].classList.add('exit');
     setTimeout(() => words[prev].classList.remove('exit'), 600);
     words[current].classList.add('active');
+    setWidth(current);
   }, 2500);
 })();
 

@@ -43,8 +43,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(16,185,129,.4)}50%{opacity:.8;box-shadow:0 0 0 8px rgba(16,185,129,0)}}
 .hero h1{font-size:clamp(36px,6vw,72px);font-weight:900;letter-spacing:-2px;line-height:1.15;margin-bottom:24px;position:relative;z-index:1;max-width:900px}
 .hero h1 .line{display:block}
-.hero h1 .rotating{display:inline-block;position:relative;overflow:hidden;vertical-align:bottom;height:1.15em;width:auto}
-.rotating-word{position:absolute;left:0;width:100%;text-align:left;opacity:0;transform:translateY(40px);transition:opacity .5s ease,transform .5s ease;white-space:nowrap}
+.hero h1 .rotating{display:inline-block;position:relative;overflow:hidden;vertical-align:bottom;height:1.15em;transition:width .4s ease}
+.rotating-word{position:absolute;left:0;opacity:0;transform:translateY(40px);transition:opacity .5s ease,transform .5s ease;white-space:nowrap}
 .rotating-word.active{opacity:1;transform:translateY(0)}
 .rotating-word.exit{opacity:0;transform:translateY(-40px)}
 .rotating-word:nth-child(1){background:var(--grad1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}

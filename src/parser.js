@@ -314,6 +314,31 @@ async function parseAllSessions() {
     grandTotals.avgTokensPerSession = Math.round(grandTotals.totalTokens / grandTotals.totalSessions);
   }
 
+  // Cost estimation per model (approximate API pricing per 1M tokens)
+  const pricing = {
+    opus:   { input: 15.00, output: 75.00 },
+    sonnet: { input: 3.00,  output: 15.00 },
+    haiku:  { input: 0.25,  output: 1.25  },
+  };
+  function getModelTier(m) {
+    if (m.includes('opus')) return 'opus';
+    if (m.includes('sonnet')) return 'sonnet';
+    if (m.includes('haiku')) return 'haiku';
+    return 'sonnet'; // default fallback
+  }
+
+  let totalEstimatedCost = 0;
+  const costBreakdown = Object.values(modelMap).map(m => {
+    const tier = getModelTier(m.model);
+    const p = pricing[tier];
+    const cost = (m.inputTokens / 1e6) * p.input + (m.outputTokens / 1e6) * p.output;
+    totalEstimatedCost += cost;
+    return { model: m.model, cost: Math.round(cost * 100) / 100 };
+  }).sort((a, b) => b.cost - a.cost);
+
+  grandTotals.estimatedCost = Math.round(totalEstimatedCost * 100) / 100;
+  grandTotals.costBreakdown = costBreakdown;
+
   const insights = generateInsights(sessions, allPrompts, grandTotals);
 
   return {

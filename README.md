@@ -16,6 +16,8 @@ That's it. Your browser opens with a full analytics dashboard.
 
 - **Usage Breakdown** - Every conversation ranked by token consumption with per-message drilldowns
 - **Smart Insights** - Actionable tips personalized to your usage patterns (vague prompts, long sessions, model mismatches)
+- **Cost Estimation** - Approximate USD cost based on current Claude API pricing, broken down by model
+- **Export to CSV** - Download all session data as a CSV for analysis in Excel, Sheets, or any tool
 - **Daily Charts** - Visualize token usage over time with stacked bar charts (input vs output)
 - **Model Comparison** - Token split across Opus, Sonnet, and Haiku with donut chart
 - **Project Analytics** - Per-project breakdown with expandable drawers showing top prompts and tool usage

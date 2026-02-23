@@ -86,22 +86,41 @@ function renderStats() {
   const t = DATA.totals;
   const range = t.dateRange ? formatDate(t.dateRange.from) + ' - ' + formatDate(t.dateRange.to) : '';
   document.getElementById('dateRange').textContent = range;
+  const costSub = t.costBreakdown ? t.costBreakdown.map(c => modelShort(c.model) + ': $' + c.cost.toFixed(2)).join(' · ') : '';
   const cards = [
     { label: 'Total Usage', value: t.totalTokens, sub: fmt(t.totalInputTokens) + ' read + ' + fmt(t.totalOutputTokens) + ' written', grad: 'var(--grad1)' },
+    { label: 'Est. API Cost', value: null, display: '$' + (t.estimatedCost || 0).toFixed(2), sub: costSub || 'based on current API pricing', grad: 'linear-gradient(135deg,#10b981,#059669)' },
     { label: 'Conversations', value: t.totalSessions, sub: '~' + fmt(t.avgTokensPerSession) + ' tokens avg', grad: 'var(--grad2)' },
     { label: 'Messages', value: t.totalQueries, sub: '~' + fmt(t.avgTokensPerQuery) + ' tokens avg', grad: 'var(--grad3)' },
-    { label: 'Claude Wrote', value: t.totalOutputTokens, sub: ((t.totalOutputTokens / Math.max(t.totalTokens, 1)) * 100).toFixed(1) + '% of total', grad: 'var(--grad4)' }
   ];
   document.getElementById('statsRow').innerHTML = cards.map((c, i) =>
     '<div class="stat-card anim d' + (i + 1) + '">' +
     '<div class="bar" style="background:' + c.grad + '"></div>' +
     '<div class="stat-label">' + c.label + '</div>' +
-    '<div class="stat-value" data-target="' + c.value + '">' + fmt(c.value) + '</div>' +
+    '<div class="stat-value"' + (c.value !== null ? ' data-target="' + c.value + '"' : '') + '>' + (c.display || fmt(c.value)) + '</div>' +
     '<div class="stat-sub">' + c.sub + '</div></div>'
   ).join('');
   document.querySelectorAll('.stat-value[data-target]').forEach(el => {
     animateValue(el, parseInt(el.dataset.target), 1200);
   });
+}
+
+function exportCSV() {
+  if (!DATA || !DATA.sessions.length) return;
+  const header = 'Date,Project,First Prompt,Model,Messages,Input Tokens,Output Tokens,Total Tokens';
+  const rows = DATA.sessions.map(s => {
+    const prompt = '"' + (s.firstPrompt || '').replace(/"/g, '""') + '"';
+    const proj = '"' + projectShort(s.project).replace(/"/g, '""') + '"';
+    return [s.date, proj, prompt, modelShort(s.model), s.queryCount, s.inputTokens, s.outputTokens, s.totalTokens].join(',');
+  });
+  const csv = header + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'claude-usage-' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function renderInsights() {

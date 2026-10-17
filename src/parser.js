@@ -2,550 +2,328 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const { costOf } = require('./pricing');
 
 function getClaudeDir() {
-  return path.join(os.homedir(), '.claude');
+  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 
-async function parseJSONLFile(filePath) {
-  const lines = [];
+// Rough chars-per-token ratio, used only when a transcript line was written
+// mid-stream and its output_tokens is still the message_start placeholder.
+const CHARS_PER_TOKEN = 3.6;
+
+// Per-file parse results, reused while a file's size and mtime are unchanged.
+const fileCache = new Map();
+
+function walkJsonl(dir, out = []) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkJsonl(p, out);
+    else if (e.name.endsWith('.jsonl') && e.name !== 'journal.jsonl') out.push(p);
+  }
+  return out;
+}
+
+function promptText(content) {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  if (content.some(b => b.type === 'tool_result')) return '';
+  return content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+}
+
+function isNoisePrompt(text) {
+  return !text
+    || text.startsWith('<local-command')
+    || text.startsWith('<command-name')
+    || text.startsWith('<command-message')
+    || text.startsWith('[Request interrupted')
+    || text.startsWith('<system-reminder>')
+    || text.startsWith('Caveat:');
+}
+
+function contentChars(content) {
+  if (!Array.isArray(content)) return 0;
+  let n = 0;
+  for (const b of content) {
+    if (b.type === 'text') n += (b.text || '').length;
+    else if (b.type === 'thinking') n += (b.thinking || '').length;
+    else if (b.type === 'tool_use') n += JSON.stringify(b.input || {}).length;
+  }
+  return n;
+}
+
+async function parseFile(filePath) {
+  const isSide = filePath.includes(`${path.sep}subagents${path.sep}`);
+  const result = {
+    sessionId: null, isSide, cwd: null, gitBranch: null, version: null, title: null,
+    prompts: [], requests: new Map(), costStates: new Map(), order: [],
+  };
+
   const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let promptIdx = -1;
 
   for await (const line of rl) {
-    if (!line.trim()) continue;
-    try {
-      lines.push(JSON.parse(line));
-    } catch {
-      // Skip malformed lines
+    if (!line) continue;
+    // Skip large attachment / request-blob lines without paying for JSON.parse.
+    const head = line.slice(0, 400);
+    if (!head.includes('"type":"assistant"') && !head.includes('"type":"user"')
+      && !head.includes('cost-state') && !head.includes('ai-title')
+      && !line.includes('"usage"')) continue;
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+
+    if (e.sessionId && !result.sessionId) result.sessionId = e.sessionId;
+    if (e.cwd && !result.cwd) result.cwd = e.cwd;
+    if (e.gitBranch && e.gitBranch !== 'HEAD') result.gitBranch = e.gitBranch;
+    if (e.version) result.version = e.version;
+
+    if (e.type === 'ai-title' && e.aiTitle) { result.title = e.aiTitle; continue; }
+
+    if (e.type === 'cost-state' && e.startTime) {
+      const prev = result.costStates.get(e.startTime);
+      if (!prev || (e.totalDuration || 0) >= (prev.totalDuration || 0)) result.costStates.set(e.startTime, e);
+      continue;
+    }
+
+    if (e.type === 'user' && e.message?.role === 'user' && !isSide) {
+      if (e.isMeta || e.isSidechain || e.isCompactSummary) continue;
+      const text = promptText(e.message.content);
+      if (isNoisePrompt(text)) continue;
+      promptIdx = result.prompts.length;
+      result.prompts.push({ text: text.substring(0, 2000), t: Date.parse(e.timestamp) || null });
+      continue;
+    }
+
+    if (e.type === 'assistant' && e.message?.usage) {
+      const m = e.message;
+      if (!m.model || m.model === '<synthetic>') continue;
+      const u = m.usage;
+      const key = m.id || e.requestId || e.uuid;
+      const cc = u.cache_creation || {};
+      const cw1 = cc.ephemeral_1h_input_tokens || 0;
+      const cw5 = cc.ephemeral_5m_input_tokens != null
+        ? cc.ephemeral_5m_input_tokens
+        : Math.max(0, (u.cache_creation_input_tokens || 0) - cw1);
+      const tools = Array.isArray(m.content)
+        ? m.content.filter(b => b.type === 'tool_use' && b.name).map(b => b.name)
+        : [];
+
+      // Claude Code writes one line per content block, all sharing a message id;
+      // merge them instead of counting each line as its own request.
+      let r = result.requests.get(key);
+      if (!r) {
+        r = {
+          t: Date.parse(e.timestamp) || null, model: m.model,
+          in: 0, cw5: 0, cw1: 0, cr: 0, out: 0, think: 0, web: 0,
+          fast: false, tools: [], chars: 0, final: false, p: isSide ? null : promptIdx, side: isSide,
+        };
+        result.requests.set(key, r);
+        result.order.push(key);
+      }
+      r.in = Math.max(r.in, u.input_tokens || 0);
+      r.cw5 = Math.max(r.cw5, cw5);
+      r.cw1 = Math.max(r.cw1, cw1);
+      r.cr = Math.max(r.cr, u.cache_read_input_tokens || 0);
+      r.out = Math.max(r.out, u.output_tokens || 0);
+      r.think = Math.max(r.think, u.output_tokens_details?.thinking_tokens || 0);
+      r.web = Math.max(r.web, u.server_tool_use?.web_search_requests || 0);
+      if (u.speed === 'fast') r.fast = true;
+      if (m.stop_reason) r.final = true;
+      r.chars += contentChars(m.content);
+      for (const t of tools) r.tools.push(t);
     }
   }
-  return lines;
+  return result;
 }
 
-function extractSessionData(entries) {
-  const queries = [];
-  let pendingUserMessage = null;
+async function parseFileCached(filePath) {
+  let stat;
+  try { stat = fs.statSync(filePath); } catch { return null; }
+  const cached = fileCache.get(filePath);
+  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached.result;
+  let result;
+  try { result = await parseFile(filePath); } catch { return null; }
+  fileCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, result });
+  return result;
+}
 
-  for (const entry of entries) {
-    if (entry.type === 'user' && entry.message?.role === 'user') {
-      const content = entry.message.content;
-      if (entry.isMeta) continue;
-      if (typeof content === 'string' && (
-        content.startsWith('<local-command') ||
-        content.startsWith('<command-name')
-      )) continue;
+function normalizeModel(m) {
+  return (m || '').replace(/\[.*?\]$/, '');
+}
 
-      const textContent = typeof content === 'string'
-        ? content
-        : content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-      pendingUserMessage = {
-        text: textContent || null,
-        timestamp: entry.timestamp,
-      };
+// Claude Code records its own running cost per process ("cost-state"). Its token
+// totals include requests the transcript misses or under-reports (streamed lines,
+// title generation, classifiers), so top up our per-request numbers to match.
+function calibrate(session, costStates) {
+  const states = [...costStates.values()].sort((a, b) => a.startTime - b.startTime);
+  if (!states.length) return;
+  const BUCKETS = [['inputTokens', 'in'], ['outputTokens', 'out'], ['cacheReadInputTokens', 'cr'],
+    ['cacheCreationInputTokens', 'cw'], ['thinkingTokens', 'think'], ['webSearchRequests', 'web']];
+
+  states.forEach((st, i) => {
+    const from = st.startTime;
+    const to = i + 1 < states.length ? states[i + 1].startTime : Infinity;
+    const inWindow = session.requests.filter(r => r.t != null && r.t >= from && r.t < to);
+    const lastT = inWindow.length ? inWindow[inWindow.length - 1].t : from;
+
+    // The same model can appear under several aliases (e.g. "claude-opus-5[1m]").
+    const usageByModel = {};
+    for (const [rawModel, mu] of Object.entries(st.modelUsage || {})) {
+      const acc = usageByModel[normalizeModel(rawModel)] ||= {};
+      for (const [src] of BUCKETS) acc[src] = (acc[src] || 0) + (mu[src] || 0);
     }
 
-    if (entry.type === 'assistant' && entry.message?.usage) {
-      const usage = entry.message.usage;
-      const model = entry.message.model || 'unknown';
-      if (model === '<synthetic>') continue;
-
-      const inputTokens = (usage.input_tokens || 0)
-        + (usage.cache_creation_input_tokens || 0)
-        + (usage.cache_read_input_tokens || 0);
-      const outputTokens = usage.output_tokens || 0;
-
-      const tools = [];
-      if (Array.isArray(entry.message.content)) {
-        for (const block of entry.message.content) {
-          if (block.type === 'tool_use' && block.name) tools.push(block.name);
+    for (const [model, mu] of Object.entries(usageByModel)) {
+      let reqs = inWindow.filter(r => normalizeModel(r.model) === model);
+      if (!reqs.length) {
+        const bg = {
+          t: lastT, model, in: 0, cw5: 0, cw1: 0, cr: 0, out: 0, think: 0, web: 0,
+          fast: false, tools: [], chars: 0, final: true, p: null, side: true, background: true,
+        };
+        session.requests.push(bg);
+        reqs = [bg];
+      }
+      for (const [src, dst] of BUCKETS) {
+        const reported = mu[src] || 0;
+        const get = r => dst === 'cw' ? r.cw5 + r.cw1 : r[dst];
+        const have = reqs.reduce((s, r) => s + get(r), 0);
+        const missing = reported - have;
+        if (missing <= 0) continue;
+        // Spread the shortfall by each request's share; output uses content size
+        // as the weight because streamed lines carry placeholder counts.
+        const weight = dst === 'out' || dst === 'think'
+          ? r => Math.max(r.chars, 1)
+          : r => Math.max(get(r), 1);
+        const totalW = reqs.reduce((s, r) => s + weight(r), 0);
+        for (const r of reqs) {
+          const add = missing * weight(r) / totalW;
+          if (dst === 'cw') {
+            const total = r.cw5 + r.cw1;
+            const share1h = total > 0 ? r.cw1 / total : (session.requests.some(x => x.cw1 > 0) ? 1 : 0);
+            r.cw1 += add * share1h;
+            r.cw5 += add * (1 - share1h);
+          } else {
+            r[dst] += add;
+          }
         }
       }
-
-      queries.push({
-        userPrompt: pendingUserMessage?.text || null,
-        userTimestamp: pendingUserMessage?.timestamp || null,
-        assistantTimestamp: entry.timestamp,
-        model,
-        inputTokens,
-        outputTokens,
-        totalTokens: inputTokens + outputTokens,
-        tools,
-      });
+      for (const r of reqs) r.calibrated = true;
     }
-  }
+  });
 
-  return queries;
+  session.reported = {
+    cost: states.reduce((s, st) => s + (st.totalCostUSD || 0), 0),
+    linesAdded: states.reduce((s, st) => s + (st.totalLinesAdded || 0), 0),
+    linesRemoved: states.reduce((s, st) => s + (st.totalLinesRemoved || 0), 0),
+    apiDurationMs: states.reduce((s, st) => s + (st.totalAPIDuration || 0), 0),
+    unknownModelCost: states.some(st => st.hasUnknownModelCost),
+  };
+}
+
+function priceRequest(r) {
+  const c = costOf(r.model, {
+    input: r.in, cacheWrite5m: r.cw5, cacheWrite1h: r.cw1, cacheRead: r.cr,
+    output: r.out, webSearch: r.web, speed: r.fast ? 'fast' : 'standard',
+  });
+  r.cost = c.total;
+  r.cb = { input: c.input, cacheWrite: c.cacheWrite, cacheRead: c.cacheRead, output: c.output, web: c.web };
+  r.priced = c.known;
 }
 
 async function parseAllSessions() {
-  const claudeDir = getClaudeDir();
-  const projectsDir = path.join(claudeDir, 'projects');
+  const projectsDir = path.join(getClaudeDir(), 'projects');
+  if (!fs.existsSync(projectsDir)) return { sessions: [], parsedAt: Date.now(), claudeDir: getClaudeDir() };
 
-  if (!fs.existsSync(projectsDir)) {
-    return { sessions: [], dailyUsage: [], modelBreakdown: [], topPrompts: [], totals: {} };
-  }
+  const sessionMap = new Map();
+  const projectDirs = fs.readdirSync(projectsDir, { withFileTypes: true }).filter(d => d.isDirectory());
+  const seenFiles = new Set();
 
-  const historyPath = path.join(claudeDir, 'history.jsonl');
-  const historyEntries = fs.existsSync(historyPath) ? await parseJSONLFile(historyPath) : [];
+  for (const pd of projectDirs) {
+    const files = walkJsonl(path.join(projectsDir, pd.name));
+    for (const file of files) {
+      seenFiles.add(file);
+      const parsed = await parseFileCached(file);
+      if (!parsed) continue;
+      // Subagent files live in <session-id>/subagents/...; their own sessionId field
+      // also points at the parent session.
+      const rel = path.relative(path.join(projectsDir, pd.name), file).split(path.sep);
+      const sessionId = parsed.sessionId || (rel.length > 1 ? rel[0] : path.basename(file, '.jsonl'));
 
-  const sessionFirstPrompt = {};
-  for (const entry of historyEntries) {
-    if (entry.sessionId && entry.display && !sessionFirstPrompt[entry.sessionId]) {
-      const display = entry.display.trim();
-      if (display.startsWith('/') && display.length < 30) continue;
-      sessionFirstPrompt[entry.sessionId] = display;
+      let s = sessionMap.get(sessionId);
+      if (!s) {
+        s = { sessionId, project: pd.name, parts: [] };
+        sessionMap.set(sessionId, s);
+      }
+      s.parts.push(parsed);
     }
   }
-
-  const projectDirs = fs.readdirSync(projectsDir).filter(d => {
-    return fs.statSync(path.join(projectsDir, d)).isDirectory();
-  });
+  for (const f of fileCache.keys()) if (!seenFiles.has(f)) fileCache.delete(f);
 
   const sessions = [];
-  const dailyMap = {};
-  const modelMap = {};
-  const allPrompts = [];
+  for (const s of sessionMap.values()) {
+    const main = s.parts.find(p => !p.isSide) || s.parts[0];
+    const prompts = s.parts.filter(p => !p.isSide).flatMap(p => p.prompts);
+    const requests = [];
+    const seen = new Set();
+    const costStates = new Map();
+    let subagentFiles = 0;
+    let promptOffset = 0;
 
-  for (const projectDir of projectDirs) {
-    const dir = path.join(projectsDir, projectDir);
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'));
-
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const sessionId = path.basename(file, '.jsonl');
-
-      let entries;
-      try {
-        entries = await parseJSONLFile(filePath);
-      } catch {
-        continue;
+    for (const part of s.parts) {
+      if (part.isSide) subagentFiles++;
+      for (const key of part.order) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const r = { ...part.requests.get(key) };
+        if (!part.isSide && r.p != null && r.p >= 0) r.p += promptOffset;
+        else if (!part.isSide && r.p === -1) r.p = null;
+        // Streamed lines without a stop_reason carry the message_start placeholder
+        // for output_tokens; estimate from the content we can see.
+        if (!r.final) r.out = Math.max(r.out, Math.round(r.chars / CHARS_PER_TOKEN));
+        requests.push(r);
       }
-      if (entries.length === 0) continue;
-
-      const queries = extractSessionData(entries);
-      if (queries.length === 0) continue;
-
-      let inputTokens = 0, outputTokens = 0;
-      for (const q of queries) {
-        inputTokens += q.inputTokens;
-        outputTokens += q.outputTokens;
-      }
-      const totalTokens = inputTokens + outputTokens;
-
-      const firstTimestamp = entries.find(e => e.timestamp)?.timestamp;
-      const date = firstTimestamp ? firstTimestamp.split('T')[0] : 'unknown';
-
-      const modelCounts = {};
-      for (const q of queries) {
-        modelCounts[q.model] = (modelCounts[q.model] || 0) + 1;
-      }
-      const primaryModel = Object.entries(modelCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
-
-      const firstPrompt = sessionFirstPrompt[sessionId]
-        || queries.find(q => q.userPrompt)?.userPrompt
-        || '(no prompt)';
-
-      let currentPrompt = null;
-      let promptInput = 0, promptOutput = 0;
-      const flushPrompt = () => {
-        if (currentPrompt && (promptInput + promptOutput) > 0) {
-          allPrompts.push({
-            prompt: currentPrompt.substring(0, 300),
-            inputTokens: promptInput,
-            outputTokens: promptOutput,
-            totalTokens: promptInput + promptOutput,
-            date,
-            sessionId,
-            model: primaryModel,
-          });
-        }
-      };
-      for (const q of queries) {
-        if (q.userPrompt && q.userPrompt !== currentPrompt) {
-          flushPrompt();
-          currentPrompt = q.userPrompt;
-          promptInput = 0;
-          promptOutput = 0;
-        }
-        promptInput += q.inputTokens;
-        promptOutput += q.outputTokens;
-      }
-      flushPrompt();
-
-      sessions.push({
-        sessionId,
-        project: projectDir,
-        date,
-        timestamp: firstTimestamp,
-        firstPrompt: firstPrompt.substring(0, 200),
-        model: primaryModel,
-        queryCount: queries.length,
-        queries,
-        inputTokens,
-        outputTokens,
-        totalTokens,
-      });
-
-      if (date !== 'unknown') {
-        if (!dailyMap[date]) {
-          dailyMap[date] = { date, inputTokens: 0, outputTokens: 0, totalTokens: 0, sessions: 0, queries: 0 };
-        }
-        dailyMap[date].inputTokens += inputTokens;
-        dailyMap[date].outputTokens += outputTokens;
-        dailyMap[date].totalTokens += totalTokens;
-        dailyMap[date].sessions += 1;
-        dailyMap[date].queries += queries.length;
-      }
-
-      for (const q of queries) {
-        if (q.model === '<synthetic>' || q.model === 'unknown') continue;
-        if (!modelMap[q.model]) {
-          modelMap[q.model] = { model: q.model, inputTokens: 0, outputTokens: 0, totalTokens: 0, queryCount: 0 };
-        }
-        modelMap[q.model].inputTokens += q.inputTokens;
-        modelMap[q.model].outputTokens += q.outputTokens;
-        modelMap[q.model].totalTokens += q.totalTokens;
-        modelMap[q.model].queryCount += 1;
-      }
+      if (!part.isSide) promptOffset += part.prompts.length;
+      for (const [k, v] of part.costStates) costStates.set(k, v);
     }
-  }
+    if (!requests.length) continue;
+    requests.sort((a, b) => (a.t || 0) - (b.t || 0));
 
-  sessions.sort((a, b) => b.totalTokens - a.totalTokens);
-
-  const projectMap = {};
-  for (const session of sessions) {
-    const proj = session.project;
-    if (!projectMap[proj]) {
-      projectMap[proj] = {
-        project: proj,
-        inputTokens: 0, outputTokens: 0, totalTokens: 0,
-        sessionCount: 0, queryCount: 0,
-        modelMap: {},
-        allPrompts: [],
-      };
-    }
-    const p = projectMap[proj];
-    p.inputTokens += session.inputTokens;
-    p.outputTokens += session.outputTokens;
-    p.totalTokens += session.totalTokens;
-    p.sessionCount += 1;
-    p.queryCount += session.queryCount;
-
-    for (const q of session.queries) {
-      if (q.model === '<synthetic>' || q.model === 'unknown') continue;
-      if (!p.modelMap[q.model]) {
-        p.modelMap[q.model] = { model: q.model, inputTokens: 0, outputTokens: 0, totalTokens: 0, queryCount: 0 };
+    // Subagent requests belong to whichever prompt was active when they ran.
+    const promptTimes = prompts.map(p => p.t || 0);
+    for (const r of requests) {
+      if (r.p != null || r.t == null) continue;
+      let lo = 0, hi = promptTimes.length - 1, idx = null;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (promptTimes[mid] <= r.t) { idx = mid; lo = mid + 1; } else hi = mid - 1;
       }
-      const m = p.modelMap[q.model];
-      m.inputTokens += q.inputTokens;
-      m.outputTokens += q.outputTokens;
-      m.totalTokens += q.totalTokens;
-      m.queryCount += 1;
+      r.p = idx;
     }
 
-    let curPrompt = null, curInput = 0, curOutput = 0, curConts = 0;
-    let curModels = {}, curTools = {};
-    const flushProjectPrompt = () => {
-      if (curPrompt && (curInput + curOutput) > 0) {
-        const topModel = Object.entries(curModels).sort((a, b) => b[1] - a[1])[0]?.[0] || session.model;
-        p.allPrompts.push({
-          prompt: curPrompt.substring(0, 300),
-          inputTokens: curInput,
-          outputTokens: curOutput,
-          totalTokens: curInput + curOutput,
-          continuations: curConts,
-          model: topModel,
-          toolCounts: { ...curTools },
-          date: session.date,
-          sessionId: session.sessionId,
-        });
-      }
+    const session = {
+      sessionId: s.sessionId,
+      project: s.project,
+      cwd: main.cwd,
+      gitBranch: s.parts.map(p => p.gitBranch).filter(Boolean).pop() || null,
+      version: main.version,
+      title: s.parts.map(p => p.title).filter(Boolean).pop() || null,
+      prompts,
+      requests,
+      subagentFiles,
+      reported: null,
     };
-    for (const q of session.queries) {
-      if (q.userPrompt && q.userPrompt !== curPrompt) {
-        flushProjectPrompt();
-        curPrompt = q.userPrompt;
-        curInput = 0; curOutput = 0; curConts = 0;
-        curModels = {}; curTools = {};
-      } else if (!q.userPrompt) {
-        curConts++;
-      }
-      curInput += q.inputTokens;
-      curOutput += q.outputTokens;
-      if (q.model && q.model !== '<synthetic>') curModels[q.model] = (curModels[q.model] || 0) + 1;
-      for (const t of q.tools || []) curTools[t] = (curTools[t] || 0) + 1;
-    }
-    flushProjectPrompt();
+    calibrate(session, costStates);
+    session.requests.sort((a, b) => (a.t || 0) - (b.t || 0));
+    for (const r of session.requests) priceRequest(r);
+    session.start = session.requests.find(r => r.t)?.t || null;
+    session.end = [...session.requests].reverse().find(r => r.t)?.t || null;
+    sessions.push(session);
   }
 
-  const projectBreakdown = Object.values(projectMap).map(p => ({
-    project: p.project,
-    inputTokens: p.inputTokens,
-    outputTokens: p.outputTokens,
-    totalTokens: p.totalTokens,
-    sessionCount: p.sessionCount,
-    queryCount: p.queryCount,
-    modelBreakdown: Object.values(p.modelMap).sort((a, b) => b.totalTokens - a.totalTokens),
-    topPrompts: (p.allPrompts || []).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, 10),
-  })).sort((a, b) => b.totalTokens - a.totalTokens);
-
-  const dailyUsage = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-
-  allPrompts.sort((a, b) => b.totalTokens - a.totalTokens);
-  const topPrompts = allPrompts.slice(0, 20);
-
-  const grandTotals = {
-    totalSessions: sessions.length,
-    totalQueries: sessions.reduce((sum, s) => sum + s.queryCount, 0),
-    totalTokens: sessions.reduce((sum, s) => sum + s.totalTokens, 0),
-    totalInputTokens: sessions.reduce((sum, s) => sum + s.inputTokens, 0),
-    totalOutputTokens: sessions.reduce((sum, s) => sum + s.outputTokens, 0),
-    avgTokensPerQuery: 0,
-    avgTokensPerSession: 0,
-    dateRange: dailyUsage.length > 0
-      ? { from: dailyUsage[0].date, to: dailyUsage[dailyUsage.length - 1].date }
-      : null,
-  };
-  if (grandTotals.totalQueries > 0) {
-    grandTotals.avgTokensPerQuery = Math.round(grandTotals.totalTokens / grandTotals.totalQueries);
-  }
-  if (grandTotals.totalSessions > 0) {
-    grandTotals.avgTokensPerSession = Math.round(grandTotals.totalTokens / grandTotals.totalSessions);
-  }
-
-  // Cost estimation per model (approximate API pricing per 1M tokens)
-  const pricing = {
-    opus:   { input: 15.00, output: 75.00 },
-    sonnet: { input: 3.00,  output: 15.00 },
-    haiku:  { input: 0.25,  output: 1.25  },
-  };
-  function getModelTier(m) {
-    if (m.includes('opus')) return 'opus';
-    if (m.includes('sonnet')) return 'sonnet';
-    if (m.includes('haiku')) return 'haiku';
-    return 'sonnet'; // default fallback
-  }
-
-  let totalEstimatedCost = 0;
-  const costBreakdown = Object.values(modelMap).map(m => {
-    const tier = getModelTier(m.model);
-    const p = pricing[tier];
-    const cost = (m.inputTokens / 1e6) * p.input + (m.outputTokens / 1e6) * p.output;
-    totalEstimatedCost += cost;
-    return { model: m.model, cost: Math.round(cost * 100) / 100 };
-  }).sort((a, b) => b.cost - a.cost);
-
-  grandTotals.estimatedCost = Math.round(totalEstimatedCost * 100) / 100;
-  grandTotals.costBreakdown = costBreakdown;
-
-  const insights = generateInsights(sessions, allPrompts, grandTotals);
-
-  return {
-    sessions,
-    dailyUsage,
-    modelBreakdown: Object.values(modelMap),
-    projectBreakdown,
-    topPrompts,
-    totals: grandTotals,
-    insights,
-  };
+  return { sessions, parsedAt: Date.now(), claudeDir: getClaudeDir() };
 }
 
-function generateInsights(sessions, allPrompts, totals) {
-  const insights = [];
-
-  const shortExpensive = allPrompts.filter(p => p.prompt.trim().length < 30 && p.totalTokens > 100_000);
-  if (shortExpensive.length > 0) {
-    const totalWasted = shortExpensive.reduce((s, p) => s + p.totalTokens, 0);
-    const examples = [...new Set(shortExpensive.map(p => p.prompt.trim()))].slice(0, 4);
-    insights.push({
-      id: 'vague-prompts',
-      type: 'warning',
-      title: 'Short, vague messages are costing you the most',
-      description: `${shortExpensive.length} times you sent a short message like ${examples.map(e => '"' + e + '"').join(', ')} -- and each time, Claude used over 100K tokens to respond. That adds up to ${fmt(totalWasted)} tokens total.`,
-      action: 'Try being specific. Instead of "Yes", say "Yes, update the login page and run the tests."',
-    });
-  }
-
-  const longSessions = sessions.filter(s => s.queries.length > 50);
-  if (longSessions.length > 0) {
-    const growthData = longSessions.map(s => {
-      const first5 = s.queries.slice(0, 5).reduce((sum, q) => sum + q.totalTokens, 0) / Math.min(5, s.queries.length);
-      const last5 = s.queries.slice(-5).reduce((sum, q) => sum + q.totalTokens, 0) / Math.min(5, s.queries.length);
-      return { session: s, first5, last5, ratio: last5 / Math.max(first5, 1) };
-    }).filter(g => g.ratio > 2);
-
-    if (growthData.length > 0) {
-      const avgGrowth = (growthData.reduce((s, g) => s + g.ratio, 0) / growthData.length).toFixed(1);
-      insights.push({
-        id: 'context-growth',
-        type: 'warning',
-        title: 'The longer you chat, the more each message costs',
-        description: `In ${growthData.length} conversations, messages near the end cost ${avgGrowth}x more than at the start. Every message re-reads the entire history.`,
-        action: 'Start a fresh conversation when you move to a new task.',
-      });
-    }
-  }
-
-  const turnCounts = sessions.map(s => s.queryCount);
-  const medianTurns = turnCounts.sort((a, b) => a - b)[Math.floor(turnCounts.length / 2)] || 0;
-  const longCount = sessions.filter(s => s.queryCount > 200).length;
-  if (longCount >= 3) {
-    const longTokens = sessions.filter(s => s.queryCount > 200).reduce((s, ses) => s + ses.totalTokens, 0);
-    const longPct = ((longTokens / Math.max(totals.totalTokens, 1)) * 100).toFixed(0);
-    insights.push({
-      id: 'marathon-sessions',
-      type: 'info',
-      title: `Just ${longCount} long conversations used ${longPct}% of all your tokens`,
-      description: `You have ${longCount} conversations with over 200 messages each, consuming ${fmt(longTokens)} tokens. Your typical conversation is about ${medianTurns} messages.`,
-      action: 'Try keeping one conversation per task.',
-    });
-  }
-
-  if (totals.totalTokens > 0) {
-    const outputPct = (totals.totalOutputTokens / totals.totalTokens) * 100;
-    if (outputPct < 2) {
-      insights.push({
-        id: 'input-heavy',
-        type: 'info',
-        title: `${outputPct.toFixed(1)}% of your tokens are Claude actually writing`,
-        description: `Out of ${fmt(totals.totalTokens)} total tokens, only ${fmt(totals.totalOutputTokens)} are from Claude writing. The rest is re-reading context.`,
-        action: 'Keeping conversations shorter has more impact than asking for shorter answers.',
-      });
-    }
-  }
-
-  if (sessions.length >= 10) {
-    const dayOfWeekMap = {};
-    for (const s of sessions) {
-      if (!s.timestamp) continue;
-      const d = new Date(s.timestamp);
-      const day = d.getDay();
-      if (!dayOfWeekMap[day]) dayOfWeekMap[day] = { tokens: 0, sessions: 0 };
-      dayOfWeekMap[day].tokens += s.totalTokens;
-      dayOfWeekMap[day].sessions += 1;
-    }
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const days = Object.entries(dayOfWeekMap).map(([d, v]) => ({ day: dayNames[d], ...v, avg: v.tokens / v.sessions }));
-    if (days.length >= 3) {
-      days.sort((a, b) => b.avg - a.avg);
-      const busiest = days[0];
-      const quietest = days[days.length - 1];
-      insights.push({
-        id: 'day-pattern',
-        type: 'neutral',
-        title: `You use Claude the most on ${busiest.day}s`,
-        description: `${busiest.day} conversations average ${fmt(Math.round(busiest.avg))} tokens each, compared to ${fmt(Math.round(quietest.avg))} on ${quietest.day}s.`,
-        action: null,
-      });
-    }
-  }
-
-  const opusSessions = sessions.filter(s => s.model.includes('opus'));
-  if (opusSessions.length > 0) {
-    const simpleOpus = opusSessions.filter(s => s.queryCount < 10 && s.totalTokens < 200_000);
-    if (simpleOpus.length >= 3) {
-      const wastedTokens = simpleOpus.reduce((s, ses) => s + ses.totalTokens, 0);
-      insights.push({
-        id: 'model-mismatch',
-        type: 'warning',
-        title: `${simpleOpus.length} simple conversations used Opus unnecessarily`,
-        description: `These conversations had fewer than 10 messages and used ${fmt(wastedTokens)} tokens on Opus. Sonnet or Haiku would give similar results for less.`,
-        action: 'Use /model to switch to Sonnet or Haiku for simple tasks.',
-      });
-    }
-  }
-
-  if (sessions.length >= 5) {
-    const toolHeavy = sessions.filter(s => {
-      const userMessages = s.queries.filter(q => q.userPrompt).length;
-      const toolCalls = s.queryCount - userMessages;
-      return userMessages > 0 && toolCalls > userMessages * 3;
-    });
-    if (toolHeavy.length >= 3) {
-      const totalToolTokens = toolHeavy.reduce((s, ses) => s + ses.totalTokens, 0);
-      const avgRatio = toolHeavy.reduce((s, ses) => {
-        const userMsgs = ses.queries.filter(q => q.userPrompt).length;
-        return s + (ses.queryCount - userMsgs) / Math.max(userMsgs, 1);
-      }, 0) / toolHeavy.length;
-      insights.push({
-        id: 'tool-heavy',
-        type: 'info',
-        title: `${toolHeavy.length} conversations had ${Math.round(avgRatio)}x more tool calls than messages`,
-        description: `Each tool call re-reads the entire conversation. These ${toolHeavy.length} conversations used ${fmt(totalToolTokens)} tokens total.`,
-        action: 'Point Claude to specific files and line numbers when you can.',
-      });
-    }
-  }
-
-  if (sessions.length >= 5) {
-    const projectTokens = {};
-    for (const s of sessions) {
-      const proj = s.project || 'unknown';
-      projectTokens[proj] = (projectTokens[proj] || 0) + s.totalTokens;
-    }
-    const sorted = Object.entries(projectTokens).sort((a, b) => b[1] - a[1]);
-    if (sorted.length >= 2) {
-      const [topProject, topTokens] = sorted[0];
-      const pct = ((topTokens / Math.max(totals.totalTokens, 1)) * 100).toFixed(0);
-      if (pct >= 60) {
-        const projName = topProject.replace(/^C--Users-[^-]+-?/, '').replace(/^Projects-?/, '').replace(/-/g, '/') || '~';
-        insights.push({
-          id: 'project-dominance',
-          type: 'info',
-          title: `${pct}% of your tokens went to one project: ${projName}`,
-          description: `Your "${projName}" project used ${fmt(topTokens)} tokens out of ${fmt(totals.totalTokens)} total.`,
-          action: 'Breaking long conversations into smaller sessions could reduce its footprint.',
-        });
-      }
-    }
-  }
-
-  if (sessions.length >= 10) {
-    const shortSessions = sessions.filter(s => s.queryCount >= 3 && s.queryCount <= 15);
-    const longSessions2 = sessions.filter(s => s.queryCount > 80);
-    if (shortSessions.length >= 3 && longSessions2.length >= 2) {
-      const shortAvg = Math.round(shortSessions.reduce((s, ses) => s + ses.totalTokens / ses.queryCount, 0) / shortSessions.length);
-      const longAvg = Math.round(longSessions2.reduce((s, ses) => s + ses.totalTokens / ses.queryCount, 0) / longSessions2.length);
-      const ratio = (longAvg / Math.max(shortAvg, 1)).toFixed(1);
-      if (ratio >= 2) {
-        insights.push({
-          id: 'conversation-efficiency',
-          type: 'warning',
-          title: `Each message costs ${ratio}x more in long conversations`,
-          description: `Short conversations (~${fmt(shortAvg)} tokens/msg) vs long ones (~${fmt(longAvg)} tokens/msg). That's ${ratio}x more per message.`,
-          action: 'Start fresh conversations more often.',
-        });
-      }
-    }
-  }
-
-  if (sessions.length >= 5) {
-    const heavyStarts = sessions.filter(s => {
-      const firstQuery = s.queries[0];
-      return firstQuery && firstQuery.inputTokens > 50_000;
-    });
-    if (heavyStarts.length >= 5) {
-      const avgStartTokens = Math.round(heavyStarts.reduce((s, ses) => s + ses.queries[0].inputTokens, 0) / heavyStarts.length);
-      insights.push({
-        id: 'heavy-context',
-        type: 'info',
-        title: `${heavyStarts.length} conversations started with ${fmt(avgStartTokens)}+ tokens of context`,
-        description: `Before you even type, Claude reads CLAUDE.md, project files, and system context. This gets re-read every message.`,
-        action: 'Keep your CLAUDE.md files concise.',
-      });
-    }
-  }
-
-  return insights;
-}
-
-function fmt(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 10_000) return (n / 1_000).toFixed(0) + 'K';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-  return n.toLocaleString();
-}
-
-module.exports = { parseAllSessions };
+module.exports = { parseAllSessions, normalizeModel };

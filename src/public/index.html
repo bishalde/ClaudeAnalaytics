@@ -27,10 +27,22 @@
     </div>
     <div class="header-right">
       <span id="dateRange" class="date-range"></span>
-      <button class="refresh-btn" onclick="exportCSV()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Export CSV
+      <button class="refresh-btn" id="liveBtn" onclick="toggleLive()" title="Re-read session files every 30 seconds">
+        <span class="live-dot"></span> Live
       </button>
+      <div class="menu-wrap">
+        <button class="refresh-btn" onclick="toggleMenu('exportMenu', event)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <div class="menu" id="exportMenu">
+          <a onclick="exportData('csv','sessions')">Sessions (CSV)</a>
+          <a onclick="exportData('csv','prompts')">Prompts (CSV)</a>
+          <a onclick="exportData('csv','requests')">Every API request (CSV)</a>
+          <a onclick="exportData('json')">Full report (JSON)</a>
+        </div>
+      </div>
+      <button class="refresh-btn" onclick="openPricing()">Pricing</button>
       <button class="refresh-btn" onclick="refreshData()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         Refresh
@@ -38,9 +50,23 @@
     </div>
   </div>
 
-  <div class="hero anim d1">
-    <h2 class="hero-title">Your token usage, visualized.</h2>
-    <p class="hero-sub">See exactly where your Claude Code tokens go. Zero setup, total privacy.</p>
+  <div class="filters anim d1">
+    <div class="chips" id="rangeChips">
+      <button data-range="today">Today</button>
+      <button data-range="7">7D</button>
+      <button data-range="30">30D</button>
+      <button data-range="90">90D</button>
+      <button data-range="month">This month</button>
+      <button data-range="all">All time</button>
+    </div>
+    <div class="filter-inputs">
+      <input type="date" id="fromDate" aria-label="From date">
+      <span class="filter-sep">to</span>
+      <input type="date" id="toDate" aria-label="To date">
+      <select id="projectFilter" aria-label="Project"><option value="">All projects</option></select>
+      <select id="modelFilter" aria-label="Model"><option value="">All models</option></select>
+      <button class="link-btn" id="clearFilters" onclick="clearFilters()">Clear</button>
+    </div>
   </div>
 
   <div class="stats-row" id="statsRow"></div>
@@ -57,17 +83,58 @@
 
   <div class="charts-grid anim d3">
     <div class="chart-card">
-      <h3>Tokens per Day</h3>
-      <canvas id="dailyChart"></canvas>
-      <div class="legend">
-        <div class="legend-item"><div class="legend-dot" style="background:var(--indigo)"></div> Read by Claude</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Written by Claude</div>
+      <div class="chart-head">
+        <h3 id="dailyTitle">Spend per Day</h3>
+        <div class="seg" id="metricToggle">
+          <button data-metric="cost" class="on">Cost</button>
+          <button data-metric="tokens">Tokens</button>
+        </div>
       </div>
+      <div class="canvas-wrap"><canvas id="dailyChart"></canvas><div class="tooltip" id="dailyTip"></div></div>
+      <div class="legend" id="dailyLegend"></div>
     </div>
     <div class="chart-card">
-      <h3>By Model</h3>
+      <h3>Spend by Model</h3>
       <canvas id="modelChart"></canvas>
-      <div id="modelLegend" class="legend" style="flex-direction:column;gap:12px;margin-top:20px"></div>
+      <div id="modelLegend" class="legend legend-col"></div>
+    </div>
+  </div>
+
+  <div class="grid-2 anim d3">
+    <div class="chart-card">
+      <h3>Where the money goes</h3>
+      <div id="bucketBar" class="bucket-bar"></div>
+      <div id="bucketList" class="bucket-list"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Same usage on other models</h3>
+      <div id="whatIf" class="whatif"></div>
+      <div class="note">Reprices your exact token counts. Real results vary: a cheaper model may need more turns.</div>
+    </div>
+  </div>
+
+  <div class="section-block anim d4">
+    <div class="section-header">
+      <div class="section-icon" style="background:rgba(34,211,238,.15)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </div>
+      <div class="section-title">5-hour usage blocks</div>
+      <span class="section-meta">Claude plan limits reset on rolling 5-hour windows</span>
+    </div>
+    <div class="card"><table class="tbl" id="blocksTable">
+      <thead><tr><th>Block</th><th>Models</th><th style="text-align:right">Requests</th><th style="text-align:right">Tokens</th><th style="text-align:right">Cost</th></tr></thead>
+      <tbody id="blocksBody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid-2 anim d4">
+    <div class="chart-card">
+      <h3>When you spend</h3>
+      <div id="heatmap" class="heatmap"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Tool calls</h3>
+      <div id="toolList" class="tool-list"></div>
     </div>
   </div>
 
@@ -77,15 +144,16 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 3v18"/><path d="M3 7l9 4 9-4"/></svg>
       </div>
       <div class="section-title">Projects</div>
-      <span id="projectsCount" style="font-size:13px;color:var(--text3);font-weight:600;margin-left:auto"></span>
+      <span id="projectsCount" class="section-meta"></span>
     </div>
     <div class="card">
       <table class="tbl">
         <thead><tr>
           <th>Project</th>
-          <th style="text-align:right">Total Tokens</th>
+          <th style="text-align:right">Cost</th>
+          <th style="text-align:right">Tokens</th>
           <th style="text-align:right">Sessions</th>
-          <th style="text-align:right">Queries</th>
+          <th style="text-align:right">Last active</th>
         </tr></thead>
         <tbody id="projectsBody"></tbody>
       </table>
@@ -102,48 +170,66 @@
     <div class="prompts-card" id="topPromptsList"></div>
   </div>
 
-  <div id="drilldown" class="drilldown">
-    <div class="drilldown-header">
-      <div>
-        <div id="drilldownTitle" class="drilldown-title"></div>
-        <div id="drilldownMeta" class="drilldown-meta"></div>
-      </div>
-      <button class="drilldown-close" onclick="closeDrilldown()">&times;</button>
-    </div>
-    <div id="queryList" class="query-list"></div>
-  </div>
-
   <div class="sessions-section anim d5">
     <div class="section-header">
       <div class="section-icon" style="background:rgba(16,185,129,.15)">
         <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
       </div>
-      <div class="section-title">All Sessions</div>
+      <div class="section-title">Sessions</div>
     </div>
     <div class="sessions-toolbar">
-      <input type="text" class="session-search" id="searchInput" placeholder="Search prompts, models, projects...">
+      <input type="text" class="session-search" id="searchInput" placeholder="Search prompts, projects, branches, models...">
       <span id="sessionCount" class="session-count"></span>
     </div>
-    <div class="card">
+    <div class="card table-scroll">
       <table class="tbl">
         <thead><tr>
           <th data-sort="date">Date</th>
           <th data-sort="prompt">What you asked</th>
           <th data-sort="model">Model</th>
-          <th data-sort="queries" style="text-align:right">Messages</th>
-          <th data-sort="total" style="text-align:right" class="sorted">Total tokens</th>
-          <th data-sort="input" style="text-align:right">Read</th>
-          <th data-sort="output" style="text-align:right">Written</th>
+          <th data-sort="prompts" style="text-align:right">Prompts</th>
+          <th data-sort="tokens" style="text-align:right">Tokens</th>
+          <th data-sort="cost" style="text-align:right" class="sorted">Cost</th>
         </tr></thead>
         <tbody id="sessionsBody"></tbody>
       </table>
     </div>
+    <div class="pager" id="pager"></div>
   </div>
 
-  <div class="footer">
-    Built with <a href="https://claude.ai/code" target="_blank">Claude Code</a>
+  <div class="footer" id="footer"></div>
+</div>
+
+<div class="modal" id="drilldown" onclick="if(event.target===this)closeDrilldown()">
+  <div class="modal-panel">
+    <div class="drilldown-header">
+      <div>
+        <div id="drilldownTitle" class="drilldown-title"></div>
+        <div id="drilldownMeta" class="drilldown-meta"></div>
+      </div>
+      <button class="drilldown-close" onclick="closeDrilldown()" aria-label="Close">&times;</button>
+    </div>
+    <div id="drilldownStats" class="mini-stats"></div>
+    <div class="chart-sub">Context size per request (bars = cost)</div>
+    <div class="canvas-wrap"><canvas id="contextChart"></canvas><div class="tooltip" id="contextTip"></div></div>
+    <div id="queryList" class="query-list"></div>
   </div>
 </div>
+
+<div class="modal" id="pricingModal" onclick="if(event.target===this)closePricing()">
+  <div class="modal-panel">
+    <div class="drilldown-header">
+      <div>
+        <div class="drilldown-title">How costs are calculated</div>
+        <div class="drilldown-meta" id="pricingMeta"></div>
+      </div>
+      <button class="drilldown-close" onclick="closePricing()" aria-label="Close">&times;</button>
+    </div>
+    <div id="pricingBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
 </body>

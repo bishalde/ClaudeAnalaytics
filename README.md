@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/claude-code-usage-analytics.svg)](https://www.npmjs.com/package/claude-code-usage-analytics)
 [![license](https://img.shields.io/npm/l/claude-code-usage-analytics.svg)](LICENSE)
 
-![Claude Analytics dashboard](https://raw.githubusercontent.com/bishalde/ClaudeAnalaytics/main/docs/screenshots/dashboard.png)
+![Claude Analytics dashboard](docs/screenshots/dashboard.png)
 
 Claude Analytics reads your local Claude Code session data and serves an interactive dashboard showing exactly where your tokens are being consumed.
 
@@ -38,11 +38,11 @@ That's it. Your browser opens with a full analytics dashboard.
 
 **Where the money goes, what-if pricing, 5-hour blocks, heatmap and tool calls**
 
-![Cost breakdown, usage blocks, heatmap and tool calls](https://raw.githubusercontent.com/bishalde/ClaudeAnalaytics/main/docs/screenshots/breakdown.png)
+![Cost breakdown, usage blocks, heatmap and tool calls](docs/screenshots/breakdown.png)
 
 **Session drilldown: cost per prompt and context growth**
 
-![Session drilldown](https://raw.githubusercontent.com/bishalde/ClaudeAnalaytics/main/docs/screenshots/session.png)
+![Session drilldown](docs/screenshots/session.png)
 
 <sub>Screenshots use generated demo data.</sub>
 
